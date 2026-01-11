@@ -1,0 +1,23 @@
+.gcloudignore
+.git
+.gitignore
+node_modules/
+.env
+.env.local
+.env.example
+.env.yaml.example
+
+# TypeScriptソースコード（コンパイル済みのdist/は残す）
+src/
+functions/
+tsconfig.json
+
+# 開発環境設定
+.vscode/
+.idea/
+README.md
+readme.md
+
+# ビルド/開発関連
+*.ts
+!dist/**/*
