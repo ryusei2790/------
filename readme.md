@@ -115,20 +115,20 @@ Notionに保存された英単語データベースから、毎時間自動的�
 
 ```.env
 # Supabase
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_URL=<your-supabase-url>
+SUPABASE_ANON_KEY=<your-supabase-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>
 
 # Slack
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=
+SLACK_BOT_TOKEN=xoxb-<your-token>
+SLACK_SIGNING_SECRET=<your-signing-secret>
 
 # Notion
-NOTION_API_KEY=
-NOTION_DATABASE_ID=f6404f8a1d064418a6878358e733cf8c
+NOTION_API_KEY=<your-notion-api-key>
+NOTION_DATABASE_ID=<your-notion-database-id>
 
 # Google Cloud
-GCP_PROJECT_ID=
+GCP_PROJECT_ID=<your-project-id>
 GCP_REGION=asia-northeast1
 ```
 
@@ -171,53 +171,103 @@ OAuth & Permissions → Bot Token Scopesで以下を追加：
 
 ### 6. Supabaseの設定
 
-1. [Supabase](https://supabase.com)でプロジェクト作成
-2. SQL Editorで必要なテーブルを作成（詳細は下記「Supabaseテーブル作成」セクション参照）
-3. Project Settings → API からURLとKeysを取得
+**6.1 プロジェクトの作成**
 
-#### Supabaseテーブル作成
+1. [Supabase](https://supabase.com)にアクセス
+2. 「Start your project」をクリックして新規プロジェクトを作成
+3. プロジェクト名、データベースパスワード、リージョンを設定
+   - リージョンは日本に近い場所を選択（例: Tokyo または Singapore）
 
-Supabase Dashboard → SQL Editor で以下のSQLを実行してください:
+**6.2 データベーススキーマの作成**
 
-**1. slack_usersテーブル**
-```sql
--- Slackユーザー情報を格納
-DROP TABLE IF EXISTS public.slack_users CASCADE;
+1. Supabase Dashboard にログイン
+2. 左側のメニューから「SQL Editor」を選択
+3. 「New query」ボタンをクリック
+4. プロジェクトルートにある [`supabase_schema.sql`](supabase_schema.sql) ファイルの内容をすべてコピー
+5. SQL Editorに貼り付けて「Run」ボタンをクリック
 
-CREATE TABLE public.slack_users (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  slack_user_id TEXT UNIQUE NOT NULL,
-  team_id TEXT NOT NULL DEFAULT '',
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+このSQLスクリプトには以下のテーブルとトリガーが含まれています：
+- **slack_users**: Slackユーザー情報を管理
+- **vocabulary**: Notionから同期した英単語データを保存
+- **test_sessions**: 生成されたテストセッション
+- **user_test_attempts**: ユーザーごとのテスト進捗状況
+- **user_answers**: 回答履歴の詳細
+- **vocabulary_stats**: 単語ごと・ユーザーごとの学習統計（重み付け自動計算）
+- **トリガー**: 回答時に自動的に統計を更新
 
-CREATE INDEX idx_slack_users_slack_user_id ON public.slack_users(slack_user_id);
-CREATE INDEX idx_slack_users_is_active ON public.slack_users(is_active);
+**6.3 APIキーの取得**
 
-ALTER TABLE public.slack_users ENABLE ROW LEVEL SECURITY;
+1. Supabase Dashboard で「Settings」→「API」を開く
+2. 以下の3つの値をコピーして `.env` ファイルに設定:
+   - **Project URL** → `SUPABASE_URL`
+   - **anon public key** → `SUPABASE_ANON_KEY`
+   - **service_role secret key** → `SUPABASE_SERVICE_ROLE_KEY`（**注意**: この鍵は秘密にしてください）
 
-CREATE POLICY "Allow service role full access" ON public.slack_users
-  FOR ALL
-  USING (true)
-  WITH CHECK (true);
-```
+**6.4 初期データの同期**
 
-**2. その他のテーブル**
+データベースのテーブル作成後、Notionから単語データを同期する必要があります。
+詳細は「使い方」セクションの「Notionから単語を再同期」を参照してください。
 
-残りのテーブル（`vocabulary`, `test_sessions`, `user_test_attempts`, `user_answers`, `vocabulary_stats`）については、`supabase_schema.sql`を参照してください。
-
-**注意事項**:
-- コードで使用するカラムがすべて含まれているか確認してください
-- `slack_users`テーブルには必ず `slack_user_id`, `team_id`, `is_active` カラムが必要です
-- テーブル作成時に "Potential issue detected" 警告が出た場合、内容を確認して問題なければ「Run this query」で実行してください
+**重要な注意事項**:
+- `service_role` キーは強力な権限を持つため、**サーバーサイドでのみ使用**してください
+- GitHubなどにアップロードする際は、`.env`ファイルが`.gitignore`に含まれていることを確認してください
+- Row Level Security (RLS) ポリシーが有効化されているため、クライアント側からの不正アクセスは防がれます
 
 ### 7. Notionの設定
 
-1. [Notion Integrations](https://www.notion.so/my-integrations)でインテグレーション作成
-2. 単語データベースにインテグレーションを接続
-3. Internal Integration TokenとDatabase IDを取得
+**7.1 インテグレーションの作成**
+
+1. [Notion Integrations](https://www.notion.so/my-integrations)にアクセス
+2. 「New integration」をクリック
+3. インテグレーション名を入力（例: "English Vocabulary Sync"）
+4. ワークスペースを選択
+5. 「Submit」をクリック
+6. 表示された「Internal Integration Token」をコピーして `.env` ファイルの `NOTION_API_KEY` に設定
+
+**7.2 単語データベースの作成**
+
+Notionで英単語データベースを作成する必要があります。以下の構造を持つデータベースを作成してください：
+
+| プロパティ名 | タイプ | 説明 | 必須 |
+|------------|------|------|------|
+| **English** | Title | 英単語 | ✅ |
+| **Japanese** | Text | 日本語訳 | ✅ |
+
+**例**:
+| English | Japanese |
+|---------|----------|
+| archipelago | 群島、列島 |
+| benevolent | 慈悲深い、親切な |
+| contemplate | 熟考する |
+
+**7.3 データベースとインテグレーションを接続**
+
+1. Notionで作成した単語データベースのページを開く
+2. ページ右上の「⋯」（3点リーダー）をクリック
+3. 「Add connections」を選択
+4. 作成したインテグレーション（例: "English Vocabulary Sync"）を選択して接続
+
+**7.4 Database IDの取得**
+
+1. Notionで単語データベースのページを開く
+2. ブラウザのアドレスバーからURLをコピー
+3. URLの形式: `https://www.notion.so/ワークスペース名/データベース名-DATABASE_ID?v=...`
+4. `DATABASE_ID` の部分（32文字の英数字）をコピーして `.env` ファイルの `NOTION_DATABASE_ID` に設定
+
+**例**:
+```
+URL: https://www.notion.so/myworkspace/Vocabulary-f6404f8a1d064418a6878358e733cf8c?v=abc123
+DATABASE_ID: f6404f8a1d064418a6878358e733cf8c
+```
+
+**7.5 初期データの同期確認**
+
+デプロイ後、以下のコマンドでNotionからSupabaseへデータを同期します:
+```bash
+curl -X POST https://<sync-vocabulary-url>.run.app
+```
+
+成功すると、同期された単語数が表示されます。詳細は「使い方」セクションを参照してください。
 
 ### 8. Google Cloud Platformの設定
 
@@ -382,9 +432,9 @@ gcloud scheduler jobs create http create-test-job \
   --location=asia-northeast1 \
   --schedule="0 10-22 * * *" \
   --time-zone="Asia/Tokyo" \
-  --uri="https://create-test-d46xhq4ula-an.a.run.app" \
+  --uri="<create-test関数のURL>" \
   --http-method=GET \
-  --oidc-service-account-email=ryuseitestenglish@appspot.gserviceaccount.com
+  --oidc-service-account-email=<your-project-id>@appspot.gserviceaccount.com
 ```
 
 **重要**: 
@@ -529,11 +579,15 @@ Slackアプリにメッセージを送信できるようにするため、App Ho
 ### 管理者側
 
 ```bash
-# 手動でテスト送信（Cloud Runを直接呼び出し）
-curl -X GET https://create-test-d46xhq4ula-an.a.run.app
+# まず、各関数のURLを取得
+gcloud run services describe create-test --region=asia-northeast1 --platform=managed --format='value(status.url)'
+gcloud run services describe sync-vocabulary --region=asia-northeast1 --platform=managed --format='value(status.url)'
 
-# Notionから単語を再同期
-curl -X POST https://sync-vocabulary-d46xhq4ula-an.a.run.app
+# 手動でテスト送信（取得したURLを使用）
+curl -X GET <create-test-url>
+
+# Notionから単語を再同期（取得したURLを使用）
+curl -X POST <sync-vocabulary-url>
 
 # Cloud Runサービスのログを確認
 gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=slack-events" --limit=50
@@ -562,6 +616,64 @@ gcloud run services describe sync-vocabulary --region=asia-northeast1 --platform
 - **vocabulary_stats**: 単語ごと・ユーザーごとの統計（重み付け自動計算）
 
 詳細は[supabase_schema.sql](supabase_schema.sql)を参照。
+
+## セキュリティとプライバシー
+
+### 環境変数の管理
+
+このプロジェクトでは、以下の機密情報を環境変数として管理しています：
+
+- **Supabase認証情報** (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)
+  - Supabaseデータベースへのアクセスに使用
+  - `SERVICE_ROLE_KEY`は特に強力な権限を持つため、**絶対に公開しないでください**
+
+- **Slack認証情報** (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`)
+  - Slack APIとの通信に使用
+  - ワークスペース固有の値
+
+- **Notion認証情報** (`NOTION_API_KEY`, `NOTION_DATABASE_ID`)
+  - Notionデータベースへのアクセスに使用
+  - アカウント固有の値
+
+**重要な注意事項**:
+1. `.env`ファイルは`.gitignore`に必ず追加してください
+2. GitHubなどの公開リポジトリにプッシュする前に、機密情報が含まれていないか確認してください
+3. Cloud Functionsにデプロイする際は`.env.yaml`を使用し、このファイルも`.gitignore`に追加してください
+4. サービスアカウントやプロジェクトIDは機密情報ではありませんが、個人を特定できる情報として扱うことを推奨します
+
+### データベースのセキュリティ
+
+Supabaseでは以下のセキュリティ対策が実装されています：
+
+- **Row Level Security (RLS)**: すべてのテーブルでRLSが有効化されています
+- **サービスロールポリシー**: Cloud Functionsからのアクセスのみを許可
+- **最小権限の原則**: 各関数は必要最小限の権限のみを持ちます
+
+### このREADMEについて
+
+このREADMEでは、すべての機密情報を`<your-xxx>`形式のプレースホルダーに置き換えています。
+実際の値を設定する際は、各自の環境に応じて適切な値を使用してください。
+
+### セットアップのクイックチェックリスト
+
+環境変数を設定する際は、以下の値を各サービスから取得してください：
+
+- [ ] **Supabase** (https://app.supabase.com)
+  - [ ] Project URL → `SUPABASE_URL`
+  - [ ] Anon key → `SUPABASE_ANON_KEY`
+  - [ ] Service role key → `SUPABASE_SERVICE_ROLE_KEY`
+
+- [ ] **Slack** (https://api.slack.com/apps)
+  - [ ] Bot User OAuth Token → `SLACK_BOT_TOKEN`
+  - [ ] Signing Secret → `SLACK_SIGNING_SECRET`
+
+- [ ] **Notion** (https://www.notion.so/my-integrations)
+  - [ ] Internal Integration Token → `NOTION_API_KEY`
+  - [ ] Database ID (URLから取得) → `NOTION_DATABASE_ID`
+
+- [ ] **Google Cloud Platform**
+  - [ ] プロジェクトID → `GCP_PROJECT_ID`
+  - [ ] リージョン（通常は`asia-northeast1`）→ `GCP_REGION`
 
 ## プロジェクト構成
 
@@ -613,9 +725,9 @@ gcloud scheduler jobs create http create-test-job \
   --location=asia-northeast1 \
   --schedule="0 10-22 * * *" \
   --time-zone="Asia/Tokyo" \
-  --uri="https://create-test-d46xhq4ula-an.a.run.app" \
+  --uri="<create-test関数のURL>" \
   --http-method=GET \
-  --oidc-service-account-email=ryuseitestenglish@appspot.gserviceaccount.com
+  --oidc-service-account-email=<your-project-id>@appspot.gserviceaccount.com
 ```
 
 **注意**: 
